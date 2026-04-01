@@ -1,0 +1,68 @@
+// This is your database schema.
+// Prisma reads this file and generates the DB tables for you.
+// Run `npm run db:push` to apply changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Uses SQLite locally. To switch to Postgres (e.g. Railway),
+  // change "sqlite" to "postgresql" and update DATABASE_URL in .env
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// One row per user account
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+
+  // Each user has their own config, sync maps, and logs
+  config   Config?
+  syncMaps SyncMap[]
+  syncLogs SyncLog[]
+}
+
+// Stores Canvas + Notion credentials per user
+// We encrypt tokens before saving (see authService.js)
+model Config {
+  id            String @id @default(cuid())
+  userId        String @unique
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  canvasToken   String  // Canvas personal access token
+  canvasBaseUrl String  // e.g. https://canvas.school.edu
+  notionToken   String  // Notion integration token
+  notionDbId    String  // ID of the target Notion database
+}
+
+// Maps a Canvas assignment ID → Notion page ID
+// This is how we avoid creating duplicates on re-sync
+model SyncMap {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  canvasId     String   // Canvas assignment ID (e.g. "12345")
+  notionPageId String   // Notion page ID we created/updated
+  courseId     String   // Canvas course ID
+  lastSynced   DateTime @updatedAt
+
+  @@unique([userId, canvasId]) // One mapping per user per assignment
+}
+
+// A log entry for each sync run
+model SyncLog {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  syncedAt DateTime @default(now())
+  created  Int      // How many new Notion pages were created
+  updated  Int      // How many existing pages were updated
+  failed   Int      // How many assignments failed to sync
+  errors   String?  // JSON string with error details (if any)
+}
